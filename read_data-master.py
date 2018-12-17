@@ -2,54 +2,49 @@ import os
 from PIL import Image
 import numpy as np
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 import pickle
 
-# Function for image resizing
-def resize(img, width, height):
-    new_width = int(width / 4)
-    new_height = int(height / 4)
-
-    resize_img = img.resize((new_width, new_height))
-    return resize_img
-# Function for calculating average of width and height
+## Function for calculating average of width and height
 def calculate(foldername):
     width = []
     height = []
 
     for filename in os.listdir(foldername):  # one subject has 100 videos
-        if filename != '.DS_Store' and filename != 'BL1-088' and filename[len(filename) - 4:len(
-                filename)] != '.mp4' and filename[0:6] != 'ffmpeg':
+        if filename != '.DS_Store':
             subfolder = os.path.join(foldername, filename)
-
             for name in os.listdir(subfolder):  # one video is composed of 138 frame images
                 if name == 'fit':
                     name = os.path.join(subfolder, name)
                     for val in os.listdir(name):  # Deal with image files
-                        if val != '.DS_Store':
+                        if val[-3:] == 'jpg':
                             filename = os.path.join(name, val)
                             img = Image.open(filename)
-
                             width.append(img.size[0])
                             height.append(img.size[1])
 
     width = np.array(width)
     height = np.array(height)
 
-    return int(np.mean(width)), int(np.mean(height))
+    return int(np.mean(width)), int(np.mean(height)), len(width)
 
-# Function for image flattening
-def flattening(img):
+## Function for image flattening
+def flattening(img, config_size):
     img = np.array(img)[..., :3]
     flatten_img = []
-    #print(np.shape(img))
+
     for i in range(3):
-        #print(np.shape(img[:,:,i].reshape(-1)[:8000]))
-        flatten_img.append(img[:,:,i].reshape(-1)[:8000])
-    #flatten_img = np.array(flatten_img[:8000])
-    #print(np.shape(flatten_img))
+        flatten_img.append(img[:, :, i].reshape(-1)[:config_size])
+
     return flatten_img
 
-# Numerify the pain level
+## Fuction changing float to int
+def floatToInt(list):
+    for index,val in enumerate(list):
+        list[index] = int(val)
+    return list
+
+## Numerify the pain level
 def labelToNum(string):
     if string == 'BL1':
         return 0
@@ -62,19 +57,19 @@ def labelToNum(string):
     elif string == 'PA4':
         return 4
 
-# Get Data from a folder
-def getData(foldername):
-    total_num = 138 * 99   # number of total input data
+
+## Get Data from a folder
+def getData(foldername, resize_size, config_size):
     Y = []                 # answer
     X = []                 # input
     video_num =0
 
     # calculate average of width, height
-    width, height = calculate(foldername)
+    width, height, total_num = calculate(foldername)
+    print('Avg width:', width, ' Avg height:', height, ' Total num of data:', total_num)
 
     for filename in os.listdir(foldername):         # one subject has 100 videos
-        #print(filename)
-        if filename != '.DS_Store' and filename != 'BL1-088' and filename[len(filename)-4:len(filename)] != '.mp4' and filename[0:6] != 'ffmpeg':
+        if filename != '.DS_Store':
             pain_level = filename.split("-")[0]
             subfolder = os.path.join(foldername, filename)
 
@@ -88,64 +83,76 @@ def getData(foldername):
                     name = os.path.join(subfolder, name)
 
                     for val in os.listdir(name):        # Deal with image files
-                        if val != '.DS_Store':
+                        if val[-3:] == 'jpg':
                             frame_num = frame_num + 1
                             filename = os.path.join(name, val)
                             img = Image.open(filename)
 
                             # resize
-                            resize_img = resize(img,width,height)
+                            resize_img = img.resize((int(width/resize_size), int(height/resize_size)), Image.ANTIALIAS)
+
                             # flatten
-                            flatten_img = flattening(resize_img)
-                            #print(subfolder, val, resize_img.size[0], resize_img.size[1])
-                            #print(np.shape(flatten_img)[1])
-                            #_x.append(flatten_img)
+                            flatten_img = flattening(resize_img, config_size)
+
+                            # transpose
                             _x.append(np.transpose(flatten_img))
-                            '''
-                            ## test code
-                            for i in range(len(_x)):
-                                if np.shape(_x[i])[0] != 45:
-                                    print(np.shape(_x[i]))
-                            '''
+
                     print('video_num:',video_num,'frame_num',frame_num,'name',name)
 
                     for i in range(len(_x)):
                         tmp = []
                         if i < 29:
                             for j in range(29-i):
-                                #tmp.append(np.zeros((3,290)))
-                                tmp.append(np.zeros((np.shape(flatten_img)[1],3)))
+                                tmp.append(np.zeros((np.shape(flatten_img)[1],3), dtype=int))
                             for j in range(i+1):
-                                #tmp.append(np.array(_x[j]))
                                 tmp.append(np.array(_x[:][j]))
                         else:
                             for j in range(i-29,i+1):
-                                #tmp.append(np.array(_x[j]))
                                 tmp.append(np.array(_x[:][j]))
-
-                        X.append(tmp)
+                        X.append(np.uint8(tmp))
                         Y.append(labelToNum(pain_level))
-
-
-    #print(video_num)
+                    #print('Processing is ended for video ',video_num)
     return X, Y
 
+if __name__ == '__main__':
+    config_size = 900
+    resize_size = 14
+    subject_name = '092714_m_64'
 
-if __name__ == "__main__":
-    '''
-    width, height = calculate('/Users/sunwoo/PycharmProjects/untitled1/112909_w_20')
-    print(width , height)
-    img = Image.open('/Users/sunwoo/PycharmProjects/untitled1/112909_w_20/BL1-081/fit/crop-1.jpg')
-    new_img = resize(img,width,height)
-    new_img.show()
-    '''
+    X, Y = getData('/Users/sunwoo/Desktop/'+subject_name,resize_size,config_size)
+    print('Data is ready')
 
-    X, Y = getData('/Users/sunwoo/PycharmProjects/untitled1/112909_w_20')
+    X = np.array(X)
+    Y = np.array(Y)
 
-    with open('X', 'wb') as f1:
-        pickle.dump(X,f1)
-        f1.close()
+    X = X.reshape(-1, 30 * config_size * 3)
+    Y = Y.reshape(-1, 1)
 
-    with open('Y','wb') as f2:
-        pickle.dump(Y,f2)
-        f2.close()
+    print('Cross Validation')
+    data_train1, data_test, labels_train1, labels_test = train_test_split(X, Y, test_size=0.10, random_state=42)
+    data_train, data_valid, labels_train, labels_valid = train_test_split(data_train1, labels_train1, test_size=0.20, random_state=42)
+
+    with open(subject_name + '_data_test', 'wb') as f:
+        pickle.dump(data_test, f)
+        print('saving data_test is ended')
+        f.close()
+    with open(subject_name + '_labels_test', 'wb') as f:
+        pickle.dump(labels_test, f)
+        print('saving labels_test is ended')
+        f.close()
+    with open(subject_name + '_data_train', 'wb') as f:
+        pickle.dump(data_train, f)
+        print('saving data_train is ended')
+        f.close()
+    with open(subject_name + '_labels_train', 'wb') as f:
+        pickle.dump(labels_train, f)
+        print('saving labels_train is ended')
+        f.close()
+    with open(subject_name + '_data_valid', 'wb') as f:
+        pickle.dump(data_valid, f)
+        print('saving data_valid is ended')
+        f.close()
+    with open(subject_name + '_labels_valid', 'wb') as f:
+        pickle.dump(labels_valid, f)
+        print('saving labels_valid is ended')
+        f.close()
